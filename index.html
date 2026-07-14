@@ -417,8 +417,14 @@
     font-weight: 600; color: var(--text); font-size: 14px;
     display: block; margin-bottom: 4px;
   }
-  .preview .slot { font-weight: 600; color: var(--primary); display: block; margin-top: 6px; }
-  .preview .content { padding-left: 1.8em; display: block; color: var(--text); }
+  .preview .slot {
+    font-weight: 600; color: var(--primary); display: block; margin-top: 6px;
+    overflow-wrap: anywhere;
+  }
+  .preview .content {
+    padding-left: 1.8em; text-indent: -.9em; display: block; color: var(--text);
+    overflow-wrap: anywhere; word-break: break-word;
+  }
   .preview .section { display: block; margin-top: 12px; color: var(--text-soft); }
   .preview .commit { display: block; margin-top: 10px; color: var(--primary); font-weight: 500; }
 
@@ -1586,6 +1592,50 @@ function formatDate(iso) {
   return `${m}月${d}日`;
 }
 
+const LOG_TASK_CONTENT_WIDTH = 38;
+const LOG_NO_LINE_START = new Set(Array.from('，。！？；：、）】》」』,.!?;:)]}'));
+const LOG_BREAK_AFTER = Array.from(' /-?&=，。；：、');
+
+function displayWidth(text) {
+  return Array.from(text).reduce((width, char) => width + (/^[\x00-\xff]$/.test(char) ? 1 : 2), 0);
+}
+
+function preferredBreakIndex(text) {
+  return Math.max(0, ...LOG_BREAK_AFTER.map(char => text.lastIndexOf(char) + 1));
+}
+
+function wrapLogContent(text, maxWidth = LOG_TASK_CONTENT_WIDTH) {
+  const wrapped = [];
+  String(text).replace(/\r\n?/g, '\n').split('\n').forEach(paragraph => {
+    let buffer = '';
+    let width = 0;
+    Array.from(paragraph.trim()).forEach(char => {
+      const charWidth = displayWidth(char);
+      if (buffer && width + charWidth > maxWidth && !LOG_NO_LINE_START.has(char)) {
+        const breakAt = preferredBreakIndex(buffer);
+        if (breakAt >= buffer.length / 2) {
+          wrapped.push(buffer.slice(0, breakAt).trimEnd());
+          buffer = buffer.slice(breakAt).trimStart();
+          width = displayWidth(buffer);
+        } else {
+          wrapped.push(buffer.trimEnd());
+          buffer = '';
+          width = 0;
+        }
+      }
+      buffer += char;
+      width += charWidth;
+    });
+    if (buffer.trim()) wrapped.push(buffer.trimEnd());
+  });
+  return wrapped;
+}
+
+function formatLogTaskLine(line) {
+  const content = line.replace(/^\s*•\s*/, '').trim();
+  return wrapLogContent(content).map((part, index) => `${index === 0 ? '    • ' : '      '}${part}`);
+}
+
 function buildBody(blocks, withDur) {
   // 返回 [{slotLine, taskLines:[...]}, ...]
   const out = [];
@@ -1646,7 +1696,7 @@ function generate() {
   
   bodyLog.forEach(b => { 
     logLines.push(b.slotLine); 
-    logLines.push(...b.taskLines);
+    logLines.push(...b.taskLines.flatMap(formatLogTaskLine));
     
     mdLines.push(`**${b.slotLine}**`);
     b.taskLines.forEach(t => mdLines.push(`- ${t.replace(/^\s*•/, '').trim()}`));
@@ -1691,8 +1741,8 @@ function renderPreview(elId, header, body, reflectLines) {
     b.taskLines.forEach(line => {
       const c = document.createElement('span');
       c.className = 'content';
-      // 把开头的 "    " 去掉，让 padding-left 控制缩进
-      c.textContent = line.replace(/^\s+/, '');
+      // 由 CSS 做悬挂缩进，续行与项目正文对齐。
+      c.textContent = line.replace(/^\s*•\s*/, '• ');
       el.appendChild(c);
     });
   });
