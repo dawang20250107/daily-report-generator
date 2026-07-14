@@ -2,13 +2,21 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" id="themeColor" content="#f7f3ec">
 <title>日报生成器</title>
 <link rel="icon" href="data:,">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/lucide@latest"></script>
+<script>
+  try {
+    if (localStorage.getItem('theme') === 'dark') {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    }
+  } catch (e) {}
+</script>
 <style>
   :root {
     --bg: #f7f3ec;
@@ -64,6 +72,8 @@
   }
 
   * { box-sizing: border-box; }
+  :root { color-scheme: light; }
+  [data-theme="dark"] { color-scheme: dark; }
   html, body { background: var(--bg); transition: background 0.4s var(--tt), color 0.4s var(--tt); }
   body {
     font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -74,6 +84,27 @@
   .wrap { max-width: 1180px; margin: 0 auto; }
   h1 { font-size: 22px; margin: 0 0 4px; color: var(--text); letter-spacing: -0.01em; font-weight: 600; }
   .sub { color: var(--text-soft); font-size: 13px; margin-bottom: 16px; }
+  .app-header { margin-bottom: 4px; }
+  .app-title-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .app-title-row h1 { margin: 0; }
+  .save-status {
+    display: block; min-height: 18px; margin-top: 2px;
+    font-size: 12px; font-weight: 500; color: var(--text-mute);
+    transition: opacity 0.5s; opacity: 0.8;
+  }
+  .theme-toggle {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 44px; height: 44px; flex: 0 0 44px;
+    background: transparent; border: none; border-radius: 8px;
+    cursor: pointer; color: var(--text-soft); font-size: 24px;
+  }
+  .theme-toggle:hover { background: var(--line); color: var(--text); }
+  .mobile-dock { display: none; }
+
+  button, input, textarea { touch-action: manipulation; }
+  button:focus-visible, input:focus-visible, textarea:focus-visible {
+    outline: 3px solid var(--focus-ring); outline-offset: 2px;
+  }
 
   /* === 卡片：毛玻璃 === */
   .card {
@@ -299,6 +330,7 @@
   }
   .add-sub:hover { background: var(--input-focus-bg); border-style: solid; transform: translateY(-1px); }
   .add-sub:active { transform: scale(0.97); }
+  .block-footer { padding: 0 12px 12px; }
 
   /* === Icons === */
   .lucide { width: 1em; height: 1em; vertical-align: -0.125em; stroke-width: 2.2; }
@@ -585,11 +617,21 @@
     min-height: 24px;
   }
   .welcome-feedback.show { opacity: 1; transform: translateY(0); }
-
-  @media (max-width: 600px) {
-    .welcome-card { padding: 38px 28px 32px; }
-    .welcome-title { font-size: 22px; }
-    .smile svg { width: 130px; height: 130px; }
+  [data-theme="dark"] .welcome {
+    background:
+      radial-gradient(at 35% 30%, rgba(201, 99, 66, 0.18), transparent 55%),
+      radial-gradient(at 70% 70%, rgba(122, 150, 85, 0.12), transparent 55%),
+      rgba(24, 24, 27, 0.94);
+  }
+  [data-theme="dark"] .welcome-card {
+    background: rgba(39, 39, 42, 0.82);
+    border-color: rgba(255, 255, 255, 0.10);
+    box-shadow: 0 24px 60px rgba(0,0,0,.38), 0 2px 8px rgba(0,0,0,.26);
+  }
+  [data-theme="dark"] .storage-note {
+    color: var(--text-soft);
+    background: rgba(138, 107, 52, 0.18);
+    border-color: rgba(224, 183, 104, 0.25);
   }
 
   @media (max-width: 900px) {
@@ -600,42 +642,145 @@
   }
 
   @media (max-width: 600px) {
-    body { padding: 10px 6px; }
-    
-    /* 放大表单控件并防缩放 */
-    input[type="text"], input[type="date"], textarea, .btn { font-size: 16px; padding: 12px 14px; }
-    
-    /* 网格重构 */
-    .setup-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+    html, body { overflow-x: hidden; }
+    body {
+      padding:
+        max(10px, env(safe-area-inset-top))
+        max(8px, env(safe-area-inset-right))
+        calc(86px + env(safe-area-inset-bottom))
+        max(8px, env(safe-area-inset-left));
+      min-height: 100dvh;
+    }
+    .wrap { width: 100%; }
+    .app-header { margin: 0 2px 1px; }
+    .app-title-row { align-items: flex-start; gap: 8px; }
+    .app-title-row h1 { font-size: 20px; line-height: 1.25; padding-top: 4px; }
+    .save-status { min-height: 16px; margin-top: 0; font-size: 11px; }
+    .theme-toggle { width: 44px; height: 44px; flex-basis: 44px; }
+    .sub { margin: 0 2px 10px; font-size: 12px; line-height: 1.5; }
+    .storage-note { margin-bottom: 10px; padding: 8px 10px; line-height: 1.45; }
+    .card { padding: 12px; margin-bottom: 10px; border-radius: 8px; }
+    .card h2 { display: flex; flex-wrap: wrap; row-gap: 2px; line-height: 1.4; }
+    .hint { display: block; width: 100%; margin: 0; line-height: 1.45; }
+
+    input[type="text"], input[type="date"], input[type="time"],
+    input[type="number"], textarea, .btn {
+      min-height: 44px; font-size: 16px; padding: 11px 12px;
+    }
+
+    .setup-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
     .reflect-grid { grid-template-columns: 1fr; }
-    
-    /* 时段卡片排版增强 */
-    .block-header { padding: 10px; align-items: flex-start; }
-    .block-num { width: 26px; height: 26px; font-size: 13px; margin-top: 2px; }
-    .block-time { width: 100%; justify-content: center; margin-top: 8px; gap: 4px; }
-    .block-time .time-input { flex: 1; padding: 10px 4px; font-size: 16px; }
-    .now-btn { padding: 10px 8px; }
-    .block-dur { margin-top: 4px; }
-    
-    /* 子任务触控优化 */
-    .sub-row { grid-template-columns: 36px 14px 1fr 44px; padding: 6px 2px; }
-    .drag-handle, .drag-handle-sub { opacity: 1; padding: 10px; }
-    .drag-handle-sub { margin-left: -4px; }
-    .sub-del { font-size: 22px; padding: 12px; }
-    .add-sub { width: 100%; margin-left: 0; justify-content: center; padding: 14px; margin-top: 8px; font-size: 15px; }
-    
-    /* 工具栏变成区块排版 */
+
+    .block { scroll-margin-top: 10px; border-radius: 8px; }
+    .block-header {
+      display: grid;
+      grid-template-columns: 44px 28px minmax(0, 1fr) 44px;
+      gap: 6px; padding: 8px 10px; align-items: center;
+    }
+    .drag-handle {
+      grid-column: 1; grid-row: 1; width: 44px; height: 44px;
+      margin: 0; padding: 0; justify-content: center; touch-action: none;
+    }
+    .block-num { grid-column: 2; grid-row: 1; width: 26px; height: 26px; font-size: 13px; }
+    .block-dur { grid-column: 3; grid-row: 1; justify-self: start; }
+    .block-del {
+      grid-column: 4; grid-row: 1; width: 44px; height: 44px;
+      margin: 0; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+    }
+    .block-time {
+      grid-column: 1 / -1; grid-row: 2;
+      display: grid; grid-template-columns: 44px minmax(0, 1fr) 18px 44px minmax(0, 1fr);
+      width: 100%; gap: 5px; align-items: center;
+    }
+    .block-time .time-input {
+      width: 100%; min-width: 0; height: 44px; margin: 0;
+      padding: 9px 4px; font-size: 16px; letter-spacing: 0;
+    }
+    .block-time > span { display: inline-flex; justify-content: center; }
+    .now-btn { min-width: 44px; min-height: 44px; padding: 8px 5px; font-size: 13px; }
+
+    .sub-list { padding: 6px 8px 2px; }
+    .sub-row { grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 5px; padding: 3px 0; }
+    .sub-bullet { display: none; }
+    .drag-handle-sub {
+      width: 44px; height: 44px; opacity: 1; padding: 0; margin: 0;
+      touch-action: none;
+    }
+    .sub-row textarea { min-height: 44px; padding: 10px; font-size: 16px; line-height: 1.45; }
+    .sub-del {
+      width: 44px; height: 44px; padding: 0; font-size: 21px;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .block-footer { padding: 2px 10px 10px; }
+    .add-sub {
+      width: 100%; min-height: 44px; margin: 0; padding: 10px;
+      justify-content: center; font-size: 15px;
+    }
+
     .toolbar { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .toolbar .btn { width: 100%; margin: 0; }
+    .toolbar .btn { width: 100%; min-height: 46px; margin: 0; }
     .toolbar .spacer { display: none; }
-    .toolbar .btn[onclick="copyResult('log')"], 
+    .toolbar .btn[onclick="copyResult('log')"],
     .toolbar .btn[onclick="copyResult('markdown')"],
     .toolbar .btn[onclick="clearAll()"] { grid-column: 1 / -1; }
-    
-    /* 弹窗等微调 */
-    .toast { bottom: 50px; font-size: 15px; width: 90%; text-align: center; }
-    .welcome-card { padding: 32px 20px; }
-    .welcome-title { font-size: 24px; }
+
+    .preview { min-height: 140px; padding: 12px; font-size: 13px; line-height: 1.65; }
+    .toast {
+      bottom: calc(78px + env(safe-area-inset-bottom));
+      width: min(90%, 360px); padding: 10px 16px; font-size: 14px; text-align: center;
+    }
+
+    .mobile-dock {
+      position: fixed; z-index: 5000;
+      left: 0; right: 0; bottom: 0;
+      display: grid; grid-template-columns: 1fr 1.25fr; gap: 8px;
+      padding: 8px max(10px, env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+      background: color-mix(in srgb, var(--bg) 92%, transparent);
+      border-top: 1px solid var(--line-strong);
+      backdrop-filter: blur(18px) saturate(160%);
+      -webkit-backdrop-filter: blur(18px) saturate(160%);
+      box-shadow: 0 -8px 24px rgba(60,50,40,.08);
+    }
+    .mobile-dock button {
+      min-width: 0; min-height: 48px;
+      display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+      border: 1px solid var(--line-strong); border-radius: 8px;
+      background: var(--input-bg); color: var(--text);
+      font-family: inherit; font-size: 15px; font-weight: 500; line-height: 1;
+    }
+    .mobile-dock .primary {
+      color: #fff; border-color: transparent;
+      background: linear-gradient(180deg, var(--accent), var(--accent-d));
+      box-shadow: 0 2px 8px rgba(74,98,48,.22);
+    }
+
+    .welcome {
+      min-height: 100dvh;
+      padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    }
+    .welcome-card { width: 100%; max-width: 360px; padding: 28px 20px 24px; border-radius: 16px; }
+    .welcome-title { margin-top: 12px; font-size: 22px; }
+    .welcome-sub { margin-bottom: 22px; line-height: 1.5; }
+    .welcome-btn { width: 100%; min-height: 50px; padding: 12px 18px; }
+    .smile svg { width: 112px; height: 112px; }
+    .ripple, .cursor-dot { display: none; }
+  }
+
+  @media (max-width: 300px) {
+    .setup-grid { grid-template-columns: 1fr; }
+    .app-title-row h1 { font-size: 18px; }
+    .block-header { padding-inline: 6px; }
+    .block-time { gap: 3px; }
+    .storage-note { font-size: 11px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      scroll-behavior: auto !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 </style>
 </head>
@@ -687,13 +832,13 @@
 </div>
 
 <div class="wrap">
-  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-    <h1 style="margin: 0; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-      今日工作计划 · 日报生成器
-      <span id="saveStatus" style="font-size: 12px; font-weight: 500; color: var(--text-mute); transition: opacity 0.5s; opacity: 0.8;"></span>
-    </h1>
-    <button id="themeToggle" style="background:transparent; border:none; cursor:pointer; color:var(--text-soft); font-size:24px; padding:4px;" title="切换深浅色模式"></button>
-  </div>
+  <header class="app-header">
+    <div class="app-title-row">
+      <h1>今日工作计划 · 日报生成器</h1>
+      <button id="themeToggle" class="theme-toggle" type="button" aria-label="切换深浅色模式" title="切换深浅色模式"></button>
+    </div>
+    <span id="saveStatus" class="save-status" aria-live="polite"></span>
+  </header>
   <div class="sub">点【现在】按钮自动填入当前时间，多次点击以最晚一次为准。每个时段下可加多个并行任务。</div>
 
   <div class="storage-note">
@@ -751,6 +896,11 @@
   </div>
 </div>
 
+<nav class="mobile-dock" aria-label="移动端快捷操作">
+  <button type="button" onclick="addBlockFromDock()"><i data-lucide="plus"></i><span>添加时段</span></button>
+  <button type="button" class="primary" onclick="copyResult('log')"><i data-lucide="copy"></i><span>复制日报</span></button>
+</nav>
+
 <div class="toast" id="toast"></div>
 <input type="file" id="fileInput" accept=".json" style="display:none">
 
@@ -794,7 +944,7 @@ function addBlock(block) {
       <button class="block-del" title="删除该时段"><i data-lucide="trash-2"></i></button>
     </div>
     <div class="sub-list"></div>
-    <div style="padding:0 12px 12px"><button class="add-sub" type="button"><i data-lucide="plus"></i> 添加任务</button></div>
+    <div class="block-footer"><button class="add-sub" type="button"><i data-lucide="plus"></i> 添加任务</button></div>
   `;
 
   const subList = wrap.querySelector('.sub-list');
@@ -833,6 +983,18 @@ function addBlock(block) {
   renumberBlocks();
   updateBlock(wrap);
   if(window.lucide) lucide.createIcons();
+  return wrap;
+}
+
+function addBlockFromDock() {
+  const block = addBlock();
+  block.scrollIntoView({
+    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    block: 'center'
+  });
+  setTimeout(() => block.querySelector('.desc')?.focus(), 250);
+  save();
+  generate();
 }
 
 function addSub(subList, task, insertAfterRow = null) {
@@ -1472,12 +1634,17 @@ function toast(msg) {
 
 load();
 
-// === 启动界面：每次打开都显示 ===
+// === 启动界面：每天首次打开显示 ===
 function initWelcome() {
   const welcome = document.getElementById('welcome');
   const btn = document.getElementById('welcomeBtn');
   const smile = document.getElementById('smile');
   const feedback = document.getElementById('welcomeFeedback');
+  const welcomeKey = 'daily_report_welcome_date';
+  if (localStorage.getItem(welcomeKey) === todayISO()) {
+    welcome.classList.add('gone');
+    return;
+  }
   const feedbacks = [
     '太好啦，那就开始今天的工作吧 ✨',
     '感谢你的微笑，今天会很棒 ✨',
@@ -1487,6 +1654,7 @@ function initWelcome() {
     '元气满满，出发！ ✨'
   ];
   btn.addEventListener('click', () => {
+    localStorage.setItem(welcomeKey, todayISO());
     btn.classList.add('done');
     smile.classList.add('bounce');
     feedback.textContent = feedbacks[Math.floor(Math.random() * feedbacks.length)];
@@ -1501,6 +1669,7 @@ initWelcome();
 
 // === 全局点击涟漪 + 鼠标光点 ===
 document.addEventListener('click', (e) => {
+  if (window.matchMedia('(pointer: coarse)').matches) return;
   const r = document.createElement('span');
   r.className = 'ripple';
   r.style.left = e.clientX + 'px';
@@ -1511,6 +1680,7 @@ document.addEventListener('click', (e) => {
 
 // 鼠标光点：跟随鼠标移动，提供柔和的视觉反馈
 (function() {
+  if (!window.matchMedia('(pointer: fine)').matches) return;
   const dot = document.createElement('div');
   dot.className = 'cursor-dot';
   document.body.appendChild(dot);
@@ -1550,6 +1720,7 @@ document.addEventListener('click', (e) => {
 
 // === 主题切换逻辑 ===
 const themeToggle = document.getElementById('themeToggle');
+const themeColor = document.getElementById('themeColor');
 let currentTheme = localStorage.getItem('theme') || 'light';
 if (currentTheme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
 
@@ -1559,6 +1730,7 @@ function updateThemeIcon() {
   } else {
     themeToggle.innerHTML = '<i data-lucide="moon"></i>';
   }
+  themeColor.setAttribute('content', currentTheme === 'dark' ? '#18181b' : '#f7f3ec');
   if(window.lucide) lucide.createIcons();
 }
 updateThemeIcon();
