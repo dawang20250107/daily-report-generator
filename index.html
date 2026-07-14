@@ -436,6 +436,17 @@
     box-shadow: 0 8px 24px rgba(45,38,32,.25);
   }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast.has-action {
+    pointer-events: auto; display: flex; align-items: center; gap: 14px;
+    border-radius: 10px;
+  }
+  .toast-action {
+    min-width: 48px; min-height: 32px; padding: 4px 10px;
+    border: 1px solid rgba(255,255,255,.35); border-radius: 6px;
+    background: transparent; color: #fff;
+    font-family: inherit; font-size: 13px; font-weight: 600; line-height: 1;
+    cursor: pointer;
+  }
 
   /* === 滚动条 === */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -729,6 +740,7 @@
       bottom: calc(78px + env(safe-area-inset-bottom));
       width: min(90%, 360px); padding: 10px 16px; font-size: 14px; text-align: center;
     }
+    .toast-action { min-height: 44px; }
 
     .mobile-dock {
       position: fixed; z-index: 5000;
@@ -752,6 +764,9 @@
       color: #fff; border-color: transparent;
       background: linear-gradient(180deg, var(--accent), var(--accent-d));
       box-shadow: 0 2px 8px rgba(74,98,48,.22);
+    }
+    .mobile-dock button:disabled {
+      opacity: 0.45; box-shadow: none; cursor: default;
     }
 
     .welcome {
@@ -859,7 +874,7 @@
     <h2>② 任务录入 <span class="hint">一个时段 = 一个卡片；卡片内可加多条并行任务</span></h2>
     <div id="blocks"></div>
     <div class="toolbar">
-      <button class="btn ghost" onclick="addBlock()"><i data-lucide="plus"></i> 添加时段</button>
+      <button class="btn ghost" onclick="addBlockForEntry()"><i data-lucide="plus"></i> 添加时段</button>
       <button class="btn ghost" onclick="fillRest()"><i data-lucide="coffee"></i> 一键休息</button>
       <button class="btn ghost" onclick="exportData()"><i data-lucide="download"></i> 导出备份</button>
       <button class="btn ghost" onclick="importData()"><i data-lucide="upload"></i> 导入备份</button>
@@ -897,15 +912,17 @@
 </div>
 
 <nav class="mobile-dock" aria-label="移动端快捷操作">
-  <button type="button" onclick="addBlockFromDock()"><i data-lucide="plus"></i><span>添加时段</span></button>
-  <button type="button" class="primary" onclick="copyResult('log')"><i data-lucide="copy"></i><span>复制日报</span></button>
+  <button type="button" onclick="addBlockForEntry()"><i data-lucide="plus"></i><span>添加时段</span></button>
+  <button type="button" class="primary" id="mobileCopyBtn" onclick="copyResult('log')"><i data-lucide="copy"></i><span>复制日报</span></button>
 </nav>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast" aria-live="polite"></div>
 <input type="file" id="fileInput" accept=".json" style="display:none">
 
 <script>
-const STORAGE_KEY = 'daily_report_v3';
+const STORAGE_KEY = 'daily_report_v4';
+const LEGACY_STORAGE_KEY = 'daily_report_v3';
+const DEFAULT_COMMIT = '--我承诺明天创造更高效的结果！';
 
 // 默认示例：一个空白的标准工作时段卡片
 const DEFAULT_BLOCKS = [
@@ -915,6 +932,10 @@ const DEFAULT_BLOCKS = [
 const blocksEl = document.getElementById('blocks');
 let rawTextLog = '';
 let rawMarkdownLog = '';
+let hasValidReport = false;
+let appState = { version: 4, profile: {}, reports: {} };
+let activeDate = '';
+let isHydrating = false;
 
 function nowHHMM() {
   const d = new Date();
@@ -925,7 +946,10 @@ function escapeAttr(s) { return String(s).replace(/"/g,'&quot;'); }
 function clamp(n, lo, hi) { return Math.min(Math.max(n, lo), hi); }
 
 function addBlock(block) {
-  block = block || {start:'', end:'', tasks:[{desc:''}]};
+  if (!block) {
+    const previousEnd = blocksEl.lastElementChild?.querySelector('.end')?.value || '';
+    block = {start: previousEnd, end: '', tasks: [{desc: ''}]};
+  }
   const wrap = document.createElement('div');
   wrap.className = 'block';
   wrap.draggable = true;
@@ -969,7 +993,18 @@ function addBlock(block) {
   });
 
   wrap.querySelector('.block-del').addEventListener('click', () => {
+    const deleted = readBlock(wrap);
+    const index = Array.from(blocksEl.children).indexOf(wrap);
     wrap.remove(); renumberBlocks(); save(); generate();
+    haptic();
+    toast('已删除时段', {
+      label: '撤销', duration: 5000,
+      action: () => {
+        const restored = addBlock(deleted);
+        blocksEl.insertBefore(restored, blocksEl.children[index] || null);
+        renumberBlocks(); save(); generate();
+      }
+    });
   });
   wrap.querySelector('.add-sub').addEventListener('click', () => {
     const ta = addSub(subList, {desc:''});
@@ -986,13 +1021,14 @@ function addBlock(block) {
   return wrap;
 }
 
-function addBlockFromDock() {
+function addBlockForEntry() {
   const block = addBlock();
   block.scrollIntoView({
     behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
     block: 'center'
   });
   setTimeout(() => block.querySelector('.desc')?.focus(), 250);
+  haptic();
   save();
   generate();
 }
@@ -1054,7 +1090,18 @@ function addSub(subList, task, insertAfterRow = null) {
   });
 
   row.querySelector('.sub-del').addEventListener('click', () => {
+    const index = Array.from(subList.children).indexOf(row);
+    const deleted = { desc: ta.value };
     row.remove(); save(); generate();
+    haptic();
+    toast('已删除任务', {
+      label: '撤销', duration: 5000,
+      action: () => {
+        const restored = addSub(subList, deleted).closest('.sub-row');
+        subList.insertBefore(restored, subList.children[index] || null);
+        save(); generate();
+      }
+    });
   });
   
   setupDragAndDrop(row, 'sub-row', subList);
@@ -1308,14 +1355,18 @@ function fmtSlot(start, end) {
 
 
 
-function readBlocks() {
-  return Array.from(blocksEl.querySelectorAll('.block')).map(b => ({
-    start: b.querySelector('.start').value,
-    end:   b.querySelector('.end').value,
-    tasks: Array.from(b.querySelectorAll('.sub-row')).map(r => ({
+function readBlock(block) {
+  return {
+    start: block.querySelector('.start').value,
+    end:   block.querySelector('.end').value,
+    tasks: Array.from(block.querySelectorAll('.sub-row')).map(r => ({
       desc: r.querySelector('.desc').value.trim()
     }))
-  }));
+  };
+}
+
+function readBlocks() {
+  return Array.from(blocksEl.querySelectorAll('.block')).map(readBlock);
 }
 
 // === 自动保存状态指示器与全局错误监控 ===
@@ -1340,25 +1391,64 @@ window.addEventListener('error', (e) => {
   updateSaveStatus("⚠️ JS 运行错误: " + (e.error ? e.error.message : e.message), true);
 });
 
-function save() {
+let saveTimer;
+let migratedReportDate = '';
+
+function makeEmptyReport() {
+  return {
+    blocks: DEFAULT_BLOCKS.map(block => ({
+      start: block.start,
+      end: block.end,
+      tasks: block.tasks.map(task => ({ desc: task.desc }))
+    })),
+    works: '', notWorks: '', plans: '',
+    commit: appState.profile.defaultCommit || DEFAULT_COMMIT
+  };
+}
+
+function collectCurrentReport() {
+  return {
+    blocks: readBlocks(),
+    works: document.getElementById('works').value,
+    notWorks: document.getElementById('notWorks').value,
+    plans: document.getElementById('plans').value,
+    commit: document.getElementById('commit').value
+  };
+}
+
+function captureState() {
+  if (isHydrating || !activeDate) return;
+  const commit = document.getElementById('commit').value || DEFAULT_COMMIT;
+  appState.profile = {
+    dept: document.getElementById('dept').value,
+    role: document.getElementById('role').value,
+    name: document.getElementById('name').value,
+    defaultCommit: commit
+  };
+  appState.reports[activeDate] = collectCurrentReport();
+}
+
+function persistState() {
+  clearTimeout(saveTimer);
   try {
-    const data = {
-      dept: document.getElementById('dept').value,
-      role: document.getElementById('role').value,
-      name: document.getElementById('name').value,
-      date: document.getElementById('date').value,
-      blocks: readBlocks(),
-      works:    document.getElementById('works').value,
-      notWorks: document.getElementById('notWorks').value,
-      plans:    document.getElementById('plans').value,
-      commit:   document.getElementById('commit').value
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    updateSaveStatus("💾 自动保存成功");
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(appState));
+    const time = new Date().toLocaleTimeString('zh-CN', {
+      hour: '2-digit', minute: '2-digit', hour12: false
+    });
+    updateSaveStatus(`已保存 · ${time}`);
   } catch (e) {
     console.error("Failed to save to localStorage:", e);
     updateSaveStatus("⚠️ 自动保存失败 (本地存储受限)", true);
   }
+}
+
+function save(immediate = false) {
+  if (isHydrating || !activeDate) return;
+  captureState();
+  updateSaveStatus('正在保存…');
+  clearTimeout(saveTimer);
+  if (immediate) persistState();
+  else saveTimer = setTimeout(persistState, 220);
 }
 
 function migrateOldData() {
@@ -1385,47 +1475,106 @@ function migrateOldData() {
   }
 }
 
+function stateFromLegacy(data) {
+  const reportDate = /^\d{4}-\d{2}-\d{2}$/.test(data.date || '') ? data.date : todayISO();
+  const commit = data.commit ?? DEFAULT_COMMIT;
+  migratedReportDate = reportDate;
+  return {
+    version: 4,
+    profile: {
+      dept: data.dept || '', role: data.role || '', name: data.name || '',
+      defaultCommit: commit
+    },
+    reports: {
+      [reportDate]: {
+        blocks: data.blocks?.length ? data.blocks : makeEmptyReport().blocks,
+        works: data.works ?? '', notWorks: data.notWorks ?? '',
+        plans: data.plans ?? '', commit
+      }
+    }
+  };
+}
+
+function readStoredState() {
+  const current = localStorage.getItem(STORAGE_KEY);
+  if (current) {
+    const parsed = JSON.parse(current);
+    if (parsed.version === 4 && parsed.profile && parsed.reports) return parsed;
+    throw new Error('Unsupported daily_report_v4 format');
+  }
+
+  const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+  if (legacy) return stateFromLegacy(JSON.parse(legacy));
+  const v2 = migrateOldData();
+  if (v2) return stateFromLegacy(v2);
+  return { version: 4, profile: {}, reports: {} };
+}
+
+function applyReport(report) {
+  isHydrating = true;
+  const data = report || makeEmptyReport();
+  blocksEl.innerHTML = '';
+  document.getElementById('works').value = data.works ?? '';
+  document.getElementById('notWorks').value = data.notWorks ?? '';
+  document.getElementById('plans').value = data.plans ?? '';
+  document.getElementById('commit').value = data.commit ?? appState.profile.defaultCommit ?? DEFAULT_COMMIT;
+  const blocks = data.blocks?.length ? data.blocks : makeEmptyReport().blocks;
+  blocks.forEach(block => addBlock(block));
+  isHydrating = false;
+}
+
+function switchReportDate(nextDate) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDate || '')) {
+    document.getElementById('date').value = activeDate;
+    return;
+  }
+  if (nextDate === activeDate) return;
+  save(true);
+  const existed = Boolean(appState.reports[nextDate]);
+  activeDate = nextDate;
+  applyReport(appState.reports[nextDate]);
+  generate();
+  toast(existed ? `已载入 ${formatDate(nextDate)} 草稿` : `已新建 ${formatDate(nextDate)} 日报`);
+  haptic();
+}
+
 function load() {
-  let data = null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) { data = JSON.parse(raw); }
+    appState = readStoredState();
   } catch(e) {
     console.error("Failed to read from localStorage:", e);
     updateSaveStatus("⚠️ 读取本地存储失败", true);
+    appState = { version: 4, profile: {}, reports: {} };
   }
-  
-  if (!data) data = migrateOldData();
 
   try {
-    if (data) {
-      document.getElementById('dept').value = data.dept || '';
-      document.getElementById('role').value = data.role || '';
-      document.getElementById('name').value = data.name || '';
-      document.getElementById('date').value = todayISO();
-      document.getElementById('works').value    = data.works    ?? '';
-      document.getElementById('notWorks').value = data.notWorks ?? '';
-      document.getElementById('plans').value    = data.plans    ?? '';
-      if (data.commit !== undefined) document.getElementById('commit').value = data.commit;
-      const blocks = (data.blocks && data.blocks.length) ? data.blocks : DEFAULT_BLOCKS;
-      blocks.forEach(b => addBlock(b));
-    } else {
-      document.getElementById('date').value = todayISO();
-      DEFAULT_BLOCKS.forEach(b => addBlock(b));
-    }
+    document.getElementById('dept').value = appState.profile.dept || '';
+    document.getElementById('role').value = appState.profile.role || '';
+    document.getElementById('name').value = appState.profile.name || '';
+    activeDate = todayISO();
+    document.getElementById('date').value = activeDate;
+    applyReport(appState.reports[activeDate]);
   } catch (e) {
     console.error("Error populating fields in load():", e);
     updateSaveStatus("⚠️ 初始化页面数据失败", true);
-    // 保证基本初始化不崩溃
-    document.getElementById('date').value = todayISO();
-    DEFAULT_BLOCKS.forEach(b => addBlock(b));
+    activeDate = todayISO();
+    document.getElementById('date').value = activeDate;
+    applyReport();
   }
   
-  ['dept','role','name','date','works','notWorks','plans','commit'].forEach(id => {
-    document.getElementById(id).addEventListener('input', () => { save(); generate(); });
+  ['dept','role','name','works','notWorks','plans','commit'].forEach(id => {
+    document.getElementById(id).addEventListener('input', generate);
+  });
+  document.getElementById('date').addEventListener('change', (event) => {
+    switchReportDate(event.target.value);
   });
   generate();
+  if (migratedReportDate && migratedReportDate !== activeDate) {
+    setTimeout(() => toast(`原草稿已保留在 ${formatDate(migratedReportDate)}`), 1800);
+  }
 }
+
+window.addEventListener('pagehide', () => save(true));
 
 function todayISO() {
   const d = new Date(), pad = n => String(n).padStart(2,'0');
@@ -1485,6 +1634,10 @@ function generate() {
 
   // --- 日志群版（纯文本与 Markdown）---
   const bodyLog = buildBody(blocks, false);
+  hasValidReport = bodyLog.length > 0;
+  const mobileCopyBtn = document.getElementById('mobileCopyBtn');
+  mobileCopyBtn.disabled = !hasValidReport;
+  mobileCopyBtn.setAttribute('aria-disabled', String(!hasValidReport));
   const logHeader = `${dept}   ${role}  ${name}    ${date}：`;
   const mdHeader = `**${dept}** | **${role}** | **${name}** | **${date}**：\n\n`;
   
@@ -1566,7 +1719,13 @@ async function copyResult(which) {
   const text = which === 'markdown' ? rawMarkdownLog : rawTextLog;
   const typeName = which === 'markdown' ? 'Markdown 版' : '纯文本版';
   
-  if (!text) { toast('暂无内容可复制'); return; }
+  if (!hasValidReport) {
+    toast('请先填写完整的时间和任务');
+    const target = blocksEl.querySelector('.desc');
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(() => target?.focus(), 250);
+    return;
+  }
   try {
     await navigator.clipboard.writeText(text);
     toast(`已复制 ${typeName}`);
@@ -1577,32 +1736,48 @@ async function copyResult(which) {
     document.body.removeChild(ta);
     toast(`已复制 ${typeName}`);
   }
+  markCopySuccess();
+  haptic(18);
 }
 
 function clearAll() {
   if (!confirm('确定清空所有时段和任务吗？基本信息会保留。')) return;
+  const previousBlocks = readBlocks();
   blocksEl.innerHTML = '';
   addBlock();
   save(); generate();
+  toast('已清空任务', {
+    label: '撤销', duration: 5000,
+    action: () => {
+      blocksEl.innerHTML = '';
+      previousBlocks.forEach(block => addBlock(block));
+      save(); generate();
+    }
+  });
 }
 
 function fillRest() {
   if (!confirm('确定要一键填充为“休息”吗？这会覆盖当前的任务和计划。')) return;
+  const previousReport = collectCurrentReport();
   blocksEl.innerHTML = '';
   addBlock({start: '08:30', end: '18:00', tasks: [{desc: '休息'}]});
   document.getElementById('plans').value = '休息';
   document.getElementById('works').value = '无';
   document.getElementById('notWorks').value = '无';
   save(); generate();
-  toast('已一键填充为休息');
+  toast('已填充为休息', {
+    label: '撤销', duration: 5000,
+    action: () => { applyReport(previousReport); save(); generate(); }
+  });
 }
 
 function exportData() {
+  save(true);
   const data = localStorage.getItem(STORAGE_KEY) || '{}';
   const blob = new Blob([data], {type:'application/json'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = `日报备份_${todayISO()}.json`;
+  a.href = url; a.download = `日报完整备份_${todayISO()}.json`;
   a.click(); URL.revokeObjectURL(url);
   toast('已导出备份文件');
 }
@@ -1615,7 +1790,12 @@ function importData() {
     reader.onload = () => {
       try {
         const data = JSON.parse(reader.result);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        const imported = data.version === 4 && data.profile && data.reports
+          ? data
+          : stateFromLegacy(data);
+        isHydrating = true;
+        clearTimeout(saveTimer);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(imported));
         location.reload();
       } catch(e) { toast('文件格式有误'); }
     };
@@ -1625,11 +1805,47 @@ function importData() {
 }
 
 let toastTimer;
-function toast(msg) {
+let copyFeedbackTimer;
+
+function haptic(duration = 12) {
+  if (navigator.vibrate) navigator.vibrate(duration);
+}
+
+function markCopySuccess() {
+  const button = document.getElementById('mobileCopyBtn');
+  const label = button?.querySelector('span');
+  if (!label) return;
+  label.textContent = '已复制';
+  clearTimeout(copyFeedbackTimer);
+  copyFeedbackTimer = setTimeout(() => { label.textContent = '复制日报'; }, 1600);
+}
+
+function toast(msg, options = {}) {
   const el = document.getElementById('toast');
-  el.textContent = msg; el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 1800);
+  el.replaceChildren();
+  const text = document.createElement('span');
+  text.textContent = msg;
+  el.appendChild(text);
+  el.classList.toggle('has-action', Boolean(options.action));
+
+  if (options.action) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'toast-action';
+    button.textContent = options.label || '撤销';
+    button.addEventListener('click', () => {
+      options.action();
+      haptic();
+      toast('已撤销');
+    }, { once: true });
+    el.appendChild(button);
+  }
+
+  el.classList.add('show');
+  toastTimer = setTimeout(() => {
+    el.classList.remove('show', 'has-action');
+  }, options.duration || 1800);
 }
 
 load();
